@@ -1,29 +1,41 @@
 package com.puresteam;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+
 /**
  * Created by steam on 11.09.17.
  */
 public class Main {
 
+    private static final int COUNT_THREAD = 8;
 
     public static void main(String[] args) {
+        long startTime = System.currentTimeMillis();
+        ExecutorService executor = Executors.newFixedThreadPool(COUNT_THREAD);
+        // размер списка будет совпадать с количеством потоков. инфа 100%
+        List<Callable<Boolean>> tasks = new ArrayList<>(COUNT_THREAD);
+        for (int i = 0; i <= COUNT_THREAD; i++) {
+            tasks.add(new Worker());
+        }
 
+        try {
+            List<Future<Boolean>> results = executor.invokeAll(tasks);
+            while (!isAllTaskDone(results)) {
+                System.out.println("loading");
+                Thread.sleep(TimeUnit.SECONDS.toMillis(5));
+            }
 
-        Thread worker1 = new Thread(new Worker());
-        worker1.start();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
 
-        Thread worker2 = new Thread(new Worker());
-        worker2.start();
-
-        Thread worker3 = new Thread(new Worker());
-        worker3.start();
-
-        Thread worker4 = new Thread(new Worker());
-        worker4.start();
-
+        System.out.println("time=" + (System.currentTimeMillis() - startTime));
     }
 
-    public String getName() {
-        return "name";
+    static boolean isAllTaskDone(List<Future<Boolean>> taskResults) {
+        return taskResults.stream()
+                .allMatch(Future::isDone);
     }
 }
