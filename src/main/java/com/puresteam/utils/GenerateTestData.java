@@ -1,4 +1,4 @@
-package com.puresteam;
+package com.puresteam.utils;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -11,8 +11,8 @@ import java.nio.file.Paths;
  */
 public class GenerateTestData {
 
-    /** Количество строк в итоговом файле */
-    private static final long LINE_COUNT = 1000_000L;
+    /** Количество строк в итоговом файле 50_000_000L ~ 750Мб, 600_000_000 ~ 9Гб*/
+    private static final long LINE_COUNT = 600_000_000L;
     /** Выходной файл */
     private static final String FILE_NAME = "/media/steam/E4DE4FB4DE4F7DB4/tmp/large_file.txt";
 
@@ -28,7 +28,7 @@ public class GenerateTestData {
                 writer.write(content);
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.out.printf("Generate largeFile error" + e.getMessage());
         }
     }
 
