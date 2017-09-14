@@ -8,7 +8,6 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -25,8 +24,10 @@ import java.util.stream.Stream;
  */
 public class Splitter implements Callable<Boolean> {
 
-    /** Путь к файлу, потом понять на параметр */
-    private final String FILE_PATH;
+    /** Дикетория с временными файлами */
+    private final String TMP_FILE_PATH;
+    /** Путь к файлу с данными */
+    private final Path LARGE_FILE_PATH;
     /** Количество считываемых в память строк */
     private final long COUNT;
     /** Текущая позиция в файле */
@@ -39,14 +40,14 @@ public class Splitter implements Callable<Boolean> {
      *
      * @param read семафор для чтения
      * @param write семафор для записи
-     * @param fileName файл с данными
+     * @param largeFile путь к сортируемуму файлу
+     * @param tmpPath путь к папке с временными данными
      * @param countLines размер считываемой порции
      */
-    public Splitter(Semaphore read, Semaphore write, String fileName, long countLines) {
-//        FILE_PATH = fileName;
-//        COUNT = countLines;
-        FILE_PATH = "/media/steam/E4DE4FB4DE4F7DB4/tmp/";
-        COUNT = 500000;
+    public Splitter(Semaphore read, Semaphore write, Path largeFile, String tmpPath, long countLines) {
+        TMP_FILE_PATH = tmpPath;
+        LARGE_FILE_PATH = largeFile;
+        COUNT = countLines;
         // эти два семафора накладывают ограничения на кол-во одновремнно читающих/записывающих потоков
         this.read = read;
         this.write = write;
@@ -61,7 +62,7 @@ public class Splitter implements Callable<Boolean> {
                 // семафор для чтения ограничивает количество одновременно читающих потоков.
                 // чтобы не было ситуации, что все потоки одновременно читают
                 read.acquire();
-                try (Stream<String> currentLines = Files.lines(Paths.get(FILE_PATH + "large_file.txt"))) {
+                try (Stream<String> currentLines = Files.lines(LARGE_FILE_PATH)) {
                     // пропустим указанное количество строк currentPosition
                     // и после этого атомарно увеличим currentPosition на COUNT
                     // теперь ограничим limit(COUNT),
@@ -88,8 +89,7 @@ public class Splitter implements Callable<Boolean> {
                 // отсортированная последовательность будет сохранена во временный файл
                 // с названием tmp_номер-потока_текущее-время.txt
                 // так точно не будет пересечения по названию!
-//                Path file = Paths.get(FILE_PATH + "/largesorttmp/tmp_" + currentId + "_" + LocalDateTime.now() + ".txt");
-                Path file = Paths.get(FilesUtils.generateFileName(currentId));
+                Path file = Paths.get(TMP_FILE_PATH + FilesUtils.generateFileName(currentId));
 
                 // семафор на запись ограничивает количество потоков,
                 // одновременно пишуших в файлы, чтобы не было ситуации, что все потоки пишут одновременно
@@ -100,8 +100,6 @@ public class Splitter implements Callable<Boolean> {
                 } finally {
                     write.release();
                 }
-
-//                System.out.println("id=" + currentId + "  writeTo=" + file.getFileName());
             }
         } catch (IOException | InterruptedException ex) {
             System.out.println("ERROR!!!!" + ex);

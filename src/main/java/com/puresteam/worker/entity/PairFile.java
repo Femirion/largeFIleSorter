@@ -1,12 +1,14 @@
 package com.puresteam.worker.entity;
 
+import java.nio.file.Path;
+
 /**
  * Пара фалов для слияния
  */
 public class PairFile {
 
-    private final String firstFile;
-    private final String secondFile;
+    private final Path firstFile;
+    private final Path secondFile;
     private final String path;
 
     /**
@@ -15,17 +17,17 @@ public class PairFile {
      * @param firstFile первый файл
      * @param secondFile второй файл
      */
-    public PairFile(String firstFile, String secondFile, String path) {
+    public PairFile(Path firstFile, Path secondFile, String path) {
         this.firstFile = firstFile;
         this.secondFile = secondFile;
         this.path = path;
     }
 
-    public String getFirstFile() {
+    public Path getFirstFile() {
         return firstFile;
     }
 
-    public String getSecondFile() {
+    public Path getSecondFile() {
         return secondFile;
     }
 
