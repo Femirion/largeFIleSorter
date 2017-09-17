@@ -1,31 +1,28 @@
 package com.puresteam;
 
-import com.puresteam.worker.FileProducer;
 import com.puresteam.worker.Merger;
-import com.puresteam.worker.entity.PairFile;
-import com.puresteam.worker.Splitter;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.Semaphore;
 
 /**
  * Основной класс программы
  */
 public class Main {
 
-    private static final int COUNT_THREAD = 8;
+    private static final int COUNT_THREAD = 1;
 
     public static void main(String[] args) {
         Path largeFile = Paths.get("/media/steam/E4DE4FB4DE4F7DB4/tmp/large_file.txt");
-        String tmpPath = "/media/steam/E4DE4FB4DE4F7DB4/tmp/largesorttmp/";
+        Path tmpPath = Paths.get("/media/steam/E4DE4FB4DE4F7DB4/tmp/largesorttmp/");
         long count = 500000;
 
         // создадим папку для временных файлов. чтобы не засорять мусором исходный каталог
-        File tmpDir = new File(tmpPath);
+        File tmpDir = new File(tmpPath.toString());
         tmpDir.mkdir();
 
        // эти два семафора накладывают ограничения на кол-во одновремнно читающих/записывающих потоков
@@ -50,17 +47,13 @@ public class Main {
         System.out.println("sort=" + sortTime);*/
 
 
-        final SynchronousQueue<PairFile> queue = new SynchronousQueue<>();
-
 
         List<Thread> mergers = new ArrayList<>();
-        for (int i = 1; i <= 1; i++) {
-            Thread merger = new Thread(new Merger(count / 2, queue));
+        for (int i = 1; i <= COUNT_THREAD; i++) {
+            Thread merger = new Thread(new Merger(read, write, count / 2, tmpPath));
             mergers.add(merger);
         }
 
-        Thread producer = new Thread(new FileProducer(tmpPath, queue, mergers));
-        producer.start();
         mergers.forEach(Thread::start);
 
 

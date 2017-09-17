@@ -1,14 +1,17 @@
 package com.puresteam.worker;
 
 import com.puresteam.utils.FilesUtils;
-import com.puresteam.worker.entity.PairFile;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
+import java.util.Set;
+import java.util.concurrent.Semaphore;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -20,6 +23,8 @@ import static java.nio.file.StandardOpenOption.CREATE;
  */
 public class Merger implements Runnable {
 
+    private static final Object syncObj = new Object();
+    private static Set<Path> workedFile = new HashSet<>();
     /**
      * Количество считываемых в память строк
      */
@@ -28,107 +33,155 @@ public class Merger implements Runnable {
      * Текущая позиция в файле
      */
     private long currentPosition = 0;
-    private final BlockingQueue<PairFile> queue;
+    private Semaphore read;
+    private Semaphore write;
+    private final Path tmpPath;
 
-    public Merger(long count, BlockingQueue<PairFile> queue) {
+    /**
+     * @param read    семафор для чтения
+     * @param write   семафор для записи
+     * @param count   размер читаемой порции
+     * @param tmpPath   путь до директории с временными файлами
+     */
+    public Merger(Semaphore read, Semaphore write, long count, Path tmpPath) {
         this.COUNT = count;
-        this.queue = queue;
+        this.read = read;
+        this.write = write;
+        this.tmpPath = tmpPath;
     }
+
+
 
     @Override
     public void run() {
         long currentId = Thread.currentThread().getId();
         List<String> firstLines;
         List<String> secondLines;
-        try {
-            while (!Thread.currentThread().isInterrupted()) {
+        while (true) {
+            try {
                 try {
-                    PairFile pairFile = queue.take();
-                    String mergingFile = FilesUtils.generateFileName(currentId);
-                    List<String> resultList;
-
-                    // возможна ситуация, когда продюссер обогнал консюмера
-                    // тогда в очереди лежат файлы, удаленные на предыдущей итерации
-                    // проверим что файлы для склейки действительно существуют
-                    if (!Files.exists(pairFile.getFirstFile()) || !Files.exists(pairFile.getSecondFile())) {
-                        continue;
+                    // сначала подсчитает количество файлов в директории, если всего 1, значит это результат сортировки
+                    long count = FilesUtils.fileCount(tmpPath);
+                    if (count == 1) {
+                        break;
                     }
+                } catch (IOException ex) {
+                    System.out.println("CALCULATE FILE COUNT ERROR=" + ex.getMessage());
+                }
 
-                    do {
-                        try (Stream<String> firstLinesStream = Files.lines(pairFile.getFirstFile());
-                             Stream<String> secondLinesStream = Files.lines(pairFile.getSecondFile())) {
 
-                            firstLines = firstLinesStream
-                                    .skip(currentPosition)
-                                    .limit(COUNT)
-                                    .collect(Collectors.toList());
+                Path firstFile = null;
+                Path secondFile = null;
+                // синхронизируем поиск файлов для слияния, чтобы 2 разных потока не взяли ли бы один и тот же файл
+                synchronized (syncObj) {
+                    try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(tmpPath, "*.txt")) {
+                        int countFile = 0;
+                        for (Path path : directoryStream) {
+                            // если такой файл уже взяли, то переходим к следующему
+                            if (workedFile.contains(path)) {
+                                continue;
+                            }
+                            if (countFile % 2 == 0) {
+                                firstFile = path;
+                            } else {
+                                secondFile = path;
+                                break;
+                            }
+                            countFile++;
+                        }
+                    }
+                }
 
-                            secondLines = secondLinesStream
-                                    .skip(currentPosition)
-                                    .limit(COUNT)
-                                    .collect(Collectors.toList());
+                String mergingFile = FilesUtils.generateFileName(currentId);
+                List<String> resultList;
 
-                            currentPosition += COUNT;
 
-                            int firstSize = firstLines.size();
-                            int secondSize = secondLines.size();
-                            boolean firstBigger = firstSize > secondSize;
-                            int max = firstBigger ? firstSize : secondSize;
-                            int currentPositionFirst = 0;
-                            int currentPositionSecond = 0;
+                do {
+                    try (Stream<String> firstLinesStream = Files.lines(firstFile);
+                         Stream<String> secondLinesStream = Files.lines(secondFile)) {
 
-                            resultList = new ArrayList<>(firstSize + secondSize);
+                        read.acquire();
+                        firstLines = firstLinesStream
+                                .skip(currentPosition)
+                                .limit(COUNT)
+                                .collect(Collectors.toList());
 
-                            for (int i = 0; i < max * 2; i++) {
-                                if (firstSize == currentPositionFirst) {
-                                    resultList.addAll(secondLines.subList(currentPositionSecond, secondSize));
-                                    break;
-                                }
-                                if (secondSize == currentPositionSecond) {
-                                    resultList.addAll(firstLines.subList(currentPositionFirst, firstSize));
-                                    break;
-                                }
+                        secondLines = secondLinesStream
+                                .skip(currentPosition)
+                                .limit(COUNT)
+                                .collect(Collectors.toList());
 
-                                String str1 = firstLines.get(currentPositionFirst);
-                                String str2 = secondLines.get(currentPositionSecond);
+                        currentPosition += COUNT;
 
-                                int result = str1.compareTo(str2);
-                                if (result == -1) {
-                                    resultList.add(str1);
-                                    currentPositionFirst++;
-                                } else {
-                                    resultList.add(str2);
-                                    currentPositionSecond++;
-                                }
+                        int firstSize = firstLines.size();
+                        int secondSize = secondLines.size();
+                        boolean firstBigger = firstSize > secondSize;
+                        int max = firstBigger ? firstSize : secondSize;
+                        int currentPositionFirst = 0;
+                        int currentPositionSecond = 0;
+
+                        resultList = new ArrayList<>(firstSize + secondSize);
+
+                        for (int i = 0; i < max * 2; i++) {
+                            if (firstSize == currentPositionFirst) {
+                                resultList.addAll(secondLines.subList(currentPositionSecond, secondSize));
+                                break;
+                            }
+                            if (secondSize == currentPositionSecond) {
+                                resultList.addAll(firstLines.subList(currentPositionFirst, firstSize));
+                                break;
                             }
 
+                            String str1 = firstLines.get(currentPositionFirst);
+                            String str2 = secondLines.get(currentPositionSecond);
+
+                            int result = str1.compareTo(str2);
+                            if (result == -1) {
+                                resultList.add(str1);
+                                currentPositionFirst++;
+                            } else {
+                                resultList.add(str2);
+                                currentPositionSecond++;
+                            }
                         }
 
-                        if (!resultList.isEmpty()) {
-                            Files.write(Paths.get(pairFile.getPath() + mergingFile), resultList, APPEND, CREATE);
+                    } finally {
+                        read.release();
+                    }
+
+                    if (!resultList.isEmpty()) {
+                        try {
+                            write.acquire();
+                            Files.write(Paths.get(tmpPath.toString() + mergingFile), resultList, APPEND, CREATE);
+                        } finally {
+                            write.release();
                         }
 
                     }
-                    while (!firstLines.isEmpty() && !secondLines.isEmpty());
 
-                    System.out.println(
-                            "id=" + currentId
-                                    + " finished merge "
-                                    + pairFile.getFirstFile()
-                                    + "   " + pairFile.getSecondFile()
-                                    + "   resultFile=" + mergingFile
-                    );
-
-                    Files.delete(pairFile.getFirstFile());
-                    Files.delete(pairFile.getSecondFile());
-                    // тк перешли к новому файлу, значит нужно обнулить позицию
-                    currentPosition = 0;
-                } catch (IOException ex) {
-                    System.out.println("ERROR IN MERGE=" + ex.getMessage());
                 }
+                while (!firstLines.isEmpty() && !secondLines.isEmpty());
+
+                System.out.println(
+                        "id=" + currentId
+                                + " finished merge "
+                                + firstFile.toString()
+                                + "   " + secondFile.toString()
+                                + "   resultFile=" + mergingFile
+                );
+
+                Files.delete(firstFile);
+                Files.delete(secondFile);
+                // тк перешли к новому файлу, значит нужно обнулить позицию
+                currentPosition = 0;
+                System.out.println("consumer test1");
+                System.out.println("consumer test2");
+            } catch (IOException ex) {
+                System.out.println("ERROR IN MERGE=" + ex.getMessage());
+            } catch (InterruptedException ex) {
+                System.out.println("InterruptedException=" + ex.getMessage());
             }
-        } catch (InterruptedException ex) {
-            System.out.println("InterruptedException=" + ex.getMessage());
         }
     }
+
 }
