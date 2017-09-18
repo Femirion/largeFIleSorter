@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -14,7 +15,7 @@ import java.util.concurrent.Semaphore;
  */
 public class Main {
 
-    private static final int COUNT_THREAD = 1;
+    private static final int COUNT_THREAD = 8;
 
     public static void main(String[] args) {
         Path largeFile = Paths.get("/media/steam/E4DE4FB4DE4F7DB4/tmp/large_file.txt");
@@ -47,16 +48,25 @@ public class Main {
         System.out.println("sort=" + sortTime);*/
 
 
-
+        CyclicBarrier barrier = new CyclicBarrier(COUNT_THREAD);
         List<Thread> mergers = new ArrayList<>();
         for (int i = 1; i <= COUNT_THREAD; i++) {
-            Thread merger = new Thread(new Merger(read, write, count / 2, tmpPath));
+            Thread merger = new Thread(new Merger(barrier, read, write, count / 2, tmpPath));
             mergers.add(merger);
         }
 
+        long startTime = System.currentTimeMillis();
         mergers.forEach(Thread::start);
 
+        mergers.forEach(m -> {
+            try {
+                m.join();
+            } catch (InterruptedException e) {
+                System.out.println("InterruptedException ex=" + e);
+            }
+        });
 
+        System.out.println("merge time=" + (System.currentTimeMillis() - startTime));
 //        executor.shutdown();
     }
 
