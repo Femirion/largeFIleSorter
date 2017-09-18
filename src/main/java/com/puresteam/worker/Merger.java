@@ -2,15 +2,12 @@ package com.puresteam.worker;
 
 import com.puresteam.utils.FilesUtils;
 
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Semaphore;
@@ -25,20 +22,23 @@ import static java.nio.file.StandardOpenOption.CREATE;
  */
 public class Merger implements Runnable {
 
+    /** внутренний объект синхронизицаи*/
     private static volatile Object syncObj = new Object();
+    /** Обрабатываемые сейчас файлы */
     private static Set<Path> processedFile = new ConcurrentSkipListSet<>();
+    /** Множество активных сейчас mergers */
     private static Set<Long> mergers = new HashSet<>();
-    /**
-     * Количество считываемых в память строк
-     */
+    /**  Количество считываемых в память строк */
     private final long COUNT;
-    /**
-     * Текущая позиция в файле
-     */
+    /** Текущая позиция в файле */
     private long currentPosition = 0;
+    /** Семафор на чтение */
     private Semaphore read;
+    /** Семафор на запись */
     private Semaphore write;
+    /** Путь к временной директории */
     private final Path tmpPath;
+    /** Барьер по заверешнию сливания 2х файлов */
     private final CyclicBarrier barrier;
 
     /**
@@ -59,6 +59,7 @@ public class Merger implements Runnable {
     @Override
     public void run() {
         long currentId = Thread.currentThread().getId();
+        // сохраним текущий id-потока в множество всех рабочих Merger-ов
         mergers.add(currentId);
         List<String> firstLines;
         List<String> secondLines;
@@ -92,13 +93,14 @@ public class Merger implements Runnable {
                                 firstFile = path;
                             } else {
                                 secondFile = path;
+                                // добавим сливаемые файлы в множество обрабатываемых, чтобы другие файлы
+                                // не трогали их
                                 processedFile.add(secondFile);
                                 processedFile.add(firstFile);
                                 mergingFile = Paths.get(tmpPath.toString(), FilesUtils.generateFileName(currentId));
                                 // добавим файл в множество обрабатываемых, чтобы
                                 // другие потоки не взяли его, до того как запись в него завершена
                                 processedFile.add(mergingFile);
-//                                System.out.println("currId=" + currentId + "  firstFile=" + firstFile +"  secondFile=" + secondFile);
                                 break;
                             }
                             countFile++;
@@ -106,18 +108,68 @@ public class Merger implements Runnable {
                     }
                 }
 
-                if (firstFile == null && secondFile == null) {
-//                    System.out.println("currId=" + currentId + "  await2  both file null");
+                // если хотя бы один из файлов Null, значит все файлы разобрали другие Merger-ы
+                if (firstFile == null || secondFile == null) {
                     barrier.await();
                     continue;
                 }
 
-                if (firstFile == null || secondFile == null) {
-                    String result = firstFile == null ? "first" : "second";
-//                    System.out.println("currId=" + currentId +" await3  " + result + " file null");
-                    barrier.await();
-                    continue;
+                try(FileWriter fw = new FileWriter(mergingFile.toString(), true);
+                    BufferedWriter bw = new BufferedWriter(fw);
+                    PrintWriter out = new PrintWriter(bw);
+                    Scanner scanFirst = new Scanner(firstFile.toFile());
+                    Scanner scanSecond= new Scanner(secondFile.toFile())
+                ) {
+
+                    boolean notEmptyFirstFile = true;
+                    boolean notEmptySecondFile = true;
+                    String stringFromFirstFile = null;
+                    String stringFromSecondFile = null;
+                    for (;;) {
+                        // если на предыдущем щаге узнали что файл пуст, значит
+                        // на следующем шаге он тоже будет пуст!
+                        notEmptyFirstFile = notEmptyFirstFile && scanFirst.hasNextLine();
+                        notEmptySecondFile = notEmptySecondFile && scanSecond.hasNextLine();
+
+                        // если оба файла пустые, то нужно выйти
+                        if (!notEmptyFirstFile && !notEmptySecondFile) {
+                            break;
+                        }
+
+                        // есди первый файл не пуст, но пуст второй, то будем читать и писать из 1го файла
+                        if (notEmptyFirstFile && !notEmptySecondFile) {
+                            out.println(scanFirst.nextLine());
+                            continue;
+                        }
+
+                        // есди второй файл не пуст, но пуст первый, то будем читать и писать из 2го файла
+                        if (notEmptySecondFile && !notEmptyFirstFile) {
+                            out.println(scanSecond.nextLine());
+                            continue;
+                        }
+
+                        if (stringFromFirstFile == null) {
+                            stringFromFirstFile = scanFirst.nextLine();
+                        }
+
+                        if (stringFromSecondFile == null) {
+                            stringFromSecondFile = scanSecond.nextLine();
+                        }
+
+                        if (stringFromFirstFile.compareTo(stringFromSecondFile) <= 0) {
+                            out.println(stringFromFirstFile);
+                            stringFromFirstFile = null;
+                        } else {
+                            out.println(stringFromSecondFile);
+                            stringFromSecondFile = null;
+                        }
+                    }
+                } catch (IOException e) {
+                    System.out.println("Error with write=" + e.getMessage());
                 }
+
+
+/*
 
 
 
@@ -188,7 +240,7 @@ public class Merger implements Runnable {
                     }
 
                 }
-                while (!firstLines.isEmpty() && !secondLines.isEmpty());
+                while (!firstLines.isEmpty() && !secondLines.isEmpty());*/
 
 //                System.out.println(
 //                        "id=" + currentId
