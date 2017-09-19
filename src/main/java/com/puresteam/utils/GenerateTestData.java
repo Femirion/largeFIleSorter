@@ -14,7 +14,7 @@ public class GenerateTestData {
     /** Количество строк в итоговом файле 50_000_000L ~ 750Мб, 600_000_000 ~ 9Гб*/
     private static final long LINE_COUNT = 600_000_000L;
     /** Выходной файл */
-    private static final String FILE_NAME = "/media/steam/E4DE4FB4DE4F7DB4/tmp/large_file.txt";
+    private static final String FILE_NAME = "/media/steam/E4DE4FB4DE4F7DB4/tmp/large_file1.txt";
 
     public static void main(String[] args) {
         Path path = Paths.get(FILE_NAME);

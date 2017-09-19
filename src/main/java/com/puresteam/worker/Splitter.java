@@ -25,7 +25,7 @@ import java.util.stream.Stream;
 public class Splitter implements Callable<Boolean> {
 
     /** Дикетория с временными файлами */
-    private final String TMP_FILE_PATH;
+    private final Path TMP_FILE_PATH;
     /** Путь к файлу с данными */
     private final Path LARGE_FILE_PATH;
     /** Количество считываемых в память строк */
@@ -44,7 +44,7 @@ public class Splitter implements Callable<Boolean> {
      * @param tmpPath путь к папке с временными данными
      * @param countLines размер считываемой порции
      */
-    public Splitter(Semaphore read, Semaphore write, Path largeFile, String tmpPath, long countLines) {
+    public Splitter(Semaphore read, Semaphore write, Path largeFile, Path tmpPath, long countLines) {
         TMP_FILE_PATH = tmpPath;
         LARGE_FILE_PATH = largeFile;
         COUNT = countLines;
@@ -89,7 +89,7 @@ public class Splitter implements Callable<Boolean> {
                 // отсортированная последовательность будет сохранена во временный файл
                 // с названием tmp_номер-потока_текущее-время.txt
                 // так точно не будет пересечения по названию!
-                Path file = Paths.get(TMP_FILE_PATH + FilesUtils.generateFileName(currentId));
+                Path file = Paths.get(TMP_FILE_PATH.toString(), FilesUtils.generateFileName(currentId));
 
                 // семафор на запись ограничивает количество потоков,
                 // одновременно пишуших в файлы, чтобы не было ситуации, что все потоки пишут одновременно

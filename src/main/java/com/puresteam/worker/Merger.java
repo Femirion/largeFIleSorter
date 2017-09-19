@@ -61,8 +61,6 @@ public class Merger implements Runnable {
         long currentId = Thread.currentThread().getId();
         // сохраним текущий id-потока в множество всех рабочих Merger-ов
         mergers.add(currentId);
-        List<String> firstLines;
-        List<String> secondLines;
         while (true) {
             try {
                 Path firstFile = null;
@@ -168,13 +166,8 @@ public class Merger implements Runnable {
                     System.out.println("Error with write=" + e.getMessage());
                 }
 
-
 /*
-
-
-
                 List<String> resultList;
-
                 do {
                     try (Stream<String> firstLinesStream = Files.lines(firstFile);
                          Stream<String> secondLinesStream = Files.lines(secondFile)) {
@@ -241,28 +234,12 @@ public class Merger implements Runnable {
 
                 }
                 while (!firstLines.isEmpty() && !secondLines.isEmpty());*/
-
-//                System.out.println(
-//                        "id=" + currentId
-//                                + " finished merge "
-//                                + "   resultFile=" + mergingFile
-//                );
-
-                System.out.println("currId" + currentId + "  size=" + Files.size(mergingFile));
-
                 Files.delete(firstFile);
                 Files.delete(secondFile);
                 processedFile.remove(mergingFile);
                 // тк перешли к новому файлу, значит нужно обнулить позицию
                 currentPosition = 0;
-
-//                System.out.println("currId" + currentId + "  delete " + firstFile);
-//                System.out.println("currId" + currentId + "  delete " + secondFile);
-//                System.out.println("I'm watting await4 currId=" + currentId);
-//
-
                 barrier.await();
-//                System.out.println("I'm work again currId=" + currentId);
             } catch (IOException ex) {
                 System.out.println("currId" + currentId +"  ERROR IN MERGE=" + ex.getCause());
                 ex.printStackTrace();
